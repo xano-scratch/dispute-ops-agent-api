@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "objects": {
+    "app:dispute": {
+      "guid": "165fd981caec0c880fc9dffbc2ba546f",
+      "canonical": "dispute"
+    },
+    "dbo:agent_runs": {
+      "guid": "9c0eca64d337d79c4a855a42712b7d71"
+    },
+    "dbo:decision_rules": {
+      "guid": "8c90a5499154028bf08f572e40fe6651"
+    },
+    "dbo:dispute_actions": {
+      "guid": "edecd8c51180830eba9f4245136e6770"
+    },
+    "dbo:disputes": {
+      "guid": "22edf14453419a17323bdf7003fe2c23"
+    },
+    "dbo:operators": {
+      "guid": "339bea49f9ec46355a8ef167f982bb9a"
+    },
+    "dbo:transactions": {
+      "guid": "2a5b3c18b00ba6132fb855f1a2686ac8"
+    },
+    "query:cases": {
+      "guid": "b3baded62268ece5be2c28f9d5367f0a"
+    },
+    "query:cases/open": {
+      "guid": "8eeadc08370bb2a7195947989781206a"
+    },
+    "query:cases/resolve": {
+      "guid": "bf651e95075325ac6009987f44fca8fb"
+    },
+    "query:cases/{dispute_id}": {
+      "guid": "726db5820aebd11f7766a31bddbfdd50"
+    },
+    "query:login": {
+      "guid": "e8053a45b7e1a8038df6379e68348218"
+    },
+    "query:seed": {
+      "guid": "5baef5a607384059d7df08d2456fe9d1"
+    },
+    "query:triage": {
+      "guid": "8233c2d0cc8ff9f9e616ca38f9d58eb5"
+    },
+    "toolset:dispute_triage_agent": {
+      "guid": "e47f231262726f837f9a909e31223811",
+      "canonical": "tmqPhrUa"
+    }
+  }
+}

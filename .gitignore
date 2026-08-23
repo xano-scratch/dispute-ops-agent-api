@@ -1,0 +1,10 @@
+node_modules/
+dist/
+workspace.json
+.xano/
+.env
+.env.local
+*.local
+
+# Not ignored, on purpose: xano/xano.lock pins object identity across renames
+# and environments. Commit it.

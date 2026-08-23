@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dispute Ops Agent API</title>
+    <meta
+      name="description"
+      content="A governed banking dispute API where a human ops agent and an AI agent call the same permissioned, audited endpoints, so one rule layer decides every chargeback the same way for people and agents."
+    />
+    <style>
+      :root {
+        --bg: #0a0b0e;
+        --panel: #14151a;
+        --panel-2: #1b1d24;
+        --border: rgba(255, 255, 255, 0.1);
+        --text: #ededf0;
+        --muted: #9aa0ac;
+        --primary: #5b7cfa;
+        --primary-soft: rgba(91, 124, 250, 0.15);
+        --success: #3fb950;
+        --danger: #f85149;
+        --radius: 14px;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 600px at 50% -10%, #171a2b 0%, var(--bg) 55%);
+        color: var(--text);
+        font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--primary); text-decoration: none; }
+      .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+      header { padding: 72px 0 40px; text-align: center; }
+      .badges { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 22px; }
+      .badge {
+        font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 999px;
+        background: var(--primary-soft); color: #aab8ff; border: 1px solid rgba(91, 124, 250, 0.3);
+      }
+      .badge.alt { background: rgba(255,255,255,0.05); color: var(--muted); border-color: var(--border); }
+      h1 { font-size: 44px; line-height: 1.1; margin: 0 0 16px; letter-spacing: -0.02em; }
+      .tagline { font-size: 19px; color: var(--muted); max-width: 680px; margin: 0 auto 20px; }
+      .meta { font-size: 14px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em; }
+      .cta { display: flex; gap: 12px; justify-content: center; margin-top: 28px; flex-wrap: wrap; }
+      .btn {
+        display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px;
+        padding: 11px 20px; border-radius: 10px; border: 1px solid var(--border);
+        background: var(--panel-2); color: var(--text); transition: border-color .15s, background .15s;
+      }
+      .btn:hover { border-color: var(--primary); }
+      .btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+      .shot { margin: 24px 0 8px; }
+      .shot img {
+        width: 100%; height: auto; display: block; border-radius: var(--radius);
+        border: 1px solid var(--border); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+      }
+      section { padding: 44px 0; border-top: 1px solid var(--border); }
+      h2 { font-size: 26px; margin: 0 0 20px; letter-spacing: -0.01em; }
+      .grid { display: grid; gap: 16px; grid-template-columns: repeat(2, 1fr); }
+      @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } h1 { font-size: 34px; } }
+      .card {
+        background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px;
+      }
+      .card h3 { margin: 0 0 8px; font-size: 17px; }
+      .card p { margin: 0; color: var(--muted); font-size: 15px; }
+      pre {
+        background: #0d0e12; border: 1px solid var(--border); border-radius: 10px; padding: 18px;
+        overflow-x: auto; font-size: 14px; color: #cdd3e0; margin: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+      th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      th { color: var(--muted); font-weight: 600; }
+      td code { color: #aab8ff; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+      .method { font-weight: 700; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+      .post { color: var(--success); }
+      .get { color: var(--primary); }
+      ul.screens { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+      ul.screens li { padding-left: 22px; position: relative; color: var(--muted); }
+      ul.screens li strong { color: var(--text); }
+      ul.screens li::before { content: "›"; position: absolute; left: 4px; color: var(--primary); font-weight: 700; }
+      footer { padding: 40px 0 72px; color: var(--muted); font-size: 14px; text-align: center; border-top: 1px solid var(--border); }
+      .note { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; color: var(--muted); font-size: 14px; margin-top: 16px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="badges">
+          <span class="badge">Play 4 · Agent Intelligence Layer</span>
+          <span class="badge alt">Banking · Dispute operations</span>
+        </div>
+        <h1>Dispute Ops Agent API</h1>
+        <p class="tagline">
+          One governed rule layer for a bank's chargeback disputes, called the same way by a human
+          ops operator and by an AI agent. The agent proposes. The rule layer decides. Every action
+          lands in one audit trail.
+        </p>
+        <p class="meta">6 tables · 7 endpoints · 1 AI agent · API-layer RBAC</p>
+        <div class="cta">
+          <a class="btn primary" href="https://github.com/xano-scratch/dispute-ops-agent-api"
+            >View on GitHub</a
+          >
+          <a class="btn" href="#use">Use this template</a>
+        </div>
+      </header>
+
+      <div class="shot">
+        <img
+          src="screenshot.png"
+          alt="The dispute detail: the AI agent's over-ceiling proposal, the rule that blocked it, and the human and agent audit trail interleaved."
+        />
+      </div>
+
+      <section>
+        <h2>What it proves</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>The agent is a governed caller</h3>
+            <p>
+              The AI triage endpoint reads a case and proposes a resolution inside the policy it is
+              handed. It proposes only. It never writes the final resolution.
+            </p>
+          </div>
+          <div class="card">
+            <h3>One rule for people and agents</h3>
+            <p>
+              The apply endpoint checks the caller's role, the caller's self-resolve limit, and the
+              reason code's ceiling. An over-ceiling resolution is refused for the agent and for a
+              non-supervisor human alike.
+            </p>
+          </div>
+          <div class="card">
+            <h3>API-layer permissions, not RLS</h3>
+            <p>
+              Auth is an auth table, token minting, and per-endpoint role guards. The rule a reviewer
+              reads in the code is the rule the engine runs.
+            </p>
+          </div>
+          <div class="card">
+            <h3>One shared audit trail</h3>
+            <p>
+              Each governed action writes one row, tagged human or agent. The dispute detail shows
+              the human and agent steps interleaved in time.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="use">
+        <h2>Use this template</h2>
+        <p style="color: var(--muted); margin-top: -8px">
+          Paste this to an AI coding agent, or run the steps yourself.
+        </p>
+        <pre>Clone https://github.com/xano-scratch/dispute-ops-agent-api and get it
+running. Read the README, then run:
+
+  npm install
+  npx xanots login
+  npm run xano:deploy
+
+Open the live URL it prints. The app seeds itself on first load. Use the
+identity switcher to act as the human triage operator, the human
+supervisor, or the AI agent, then run a triage and try to apply a
+resolution.</pre>
+      </section>
+
+      <section>
+        <h2>API surface</h2>
+        <table>
+          <thead>
+            <tr><th>Method</th><th>Path</th><th>What it enforces</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="method post">POST</td><td><code>/api:dispute/seed</code></td><td>Bootstraps demo data, returns a token per identity. Idempotent.</td></tr>
+            <tr><td class="method post">POST</td><td><code>/api:dispute/login</code></td><td>Exchanges email and password for a token.</td></tr>
+            <tr><td class="method post">POST</td><td><code>/api:dispute/cases/open</code></td><td>Opens a dispute after checking the reason code has a rule.</td></tr>
+            <tr><td class="method post">POST</td><td><code>/api:dispute/triage</code></td><td>The AI agent classifies and proposes the allowed resolution. Proposes only.</td></tr>
+            <tr><td class="method post">POST</td><td><code>/api:dispute/cases/resolve</code></td><td>Applies a resolution behind the shared role and limit guard. Writes apply or block.</td></tr>
+            <tr><td class="method get">GET</td><td><code>/api:dispute/cases</code></td><td>Lists disputes, with an optional status filter.</td></tr>
+            <tr><td class="method get">GET</td><td><code>/api:dispute/cases/{dispute_id}</code></td><td>One case with its transaction, rule, audit trail, and agent runs.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>The screens</h2>
+        <ul class="screens">
+          <li>
+            <strong>Identity switcher.</strong> Act as the human triage operator, the human
+            supervisor, or the AI agent. Every call carries that identity.
+          </li>
+          <li>
+            <strong>Dispute queue.</strong> The case list by status, plus a form to open a new
+            dispute against a seeded transaction.
+          </li>
+          <li>
+            <strong>Dispute detail.</strong> The case, its transaction, and the governing rule side
+            by side. Run the AI triage, apply a resolution through the guard, and read the combined
+            human and agent audit trail.
+          </li>
+        </ul>
+      </section>
+
+      <footer>
+        <div class="wrap">
+          <p>
+            An internal Xano proof artifact. Built with the
+            <a href="https://www.npmjs.com/package/@xanots/core">XanoTS</a> SDK: a typed Xano backend
+            plus a React frontend that derives its paths and types from the backend defs.
+          </p>
+          <div class="note">
+            Any live preview link is an ephemeral environment and may have expired. The durable
+            artifact is this repo. Clone it and run <code>npm run xano:deploy</code> for a fresh live
+            environment of your own.
+          </div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
