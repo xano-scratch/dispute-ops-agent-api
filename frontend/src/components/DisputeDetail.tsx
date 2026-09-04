@@ -1,13 +1,17 @@
 import { useState } from "react";
-import { Bot, Gavel, Sparkles, ShieldCheck, Ban, CheckCircle2 } from "lucide-react";
+import {
+  Bot,
+  User,
+  Sparkles,
+  Gavel,
+  CircleCheck,
+  ShieldAlert,
+  ShieldCheck,
+  ScrollText,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -15,255 +19,244 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { StatusBadge, ActionBadge, ActorBadge } from "@/components/badges";
-import { cn } from "@/lib/utils";
-import { formatCents, formatTime, labelize } from "@/lib/format";
-import type { CasesGetResponse, CasesResolveResponse } from "@/lib/api";
+import { Separator } from "@/components/ui/separator";
 
-const RESOLUTIONS = ["refund", "deny", "partial"];
+import type { CaseDetail, Identity, Resolution, CaseAction } from "@/lib/api";
+import { RESOLUTIONS } from "@/lib/api";
+import { money, when, label } from "@/lib/format";
+import { statusClass } from "./DisputeQueue";
+
+export type Notice = { tone: "ok" | "blocked" | "info"; text: string } | null;
+
+type Props = {
+  detail: CaseDetail;
+  operatorsById: Record<number, Identity>;
+  current: Identity;
+  onTriage: () => void;
+  onResolve: (resolution: Resolution) => void;
+  notice: Notice;
+  busy: boolean;
+};
+
+function actorName(a: CaseAction, byId: Record<number, Identity>): string {
+  return byId[a.actor_id]?.name ?? (a.actor_kind === "agent" ? "AI agent" : "Operator");
+}
+
+const actionTone: Record<string, string> = {
+  open: "bg-muted text-muted-foreground",
+  propose: "bg-chart-4/20 text-foreground",
+  apply: "bg-primary/15 text-primary",
+  block: "bg-destructive/15 text-destructive",
+  triage: "bg-muted text-muted-foreground",
+};
 
 export function DisputeDetail({
   detail,
+  operatorsById,
+  current,
   onTriage,
   onResolve,
-  triaging,
-  resolving,
-  lastResolve,
-}: {
-  detail: CasesGetResponse;
-  onTriage: () => void;
-  onResolve: (resolution: string) => void;
-  triaging: boolean;
-  resolving: boolean;
-  lastResolve: CasesResolveResponse | null;
-}) {
-  const dispute = detail.dispute;
-  const rule = detail.rule;
-  const allowedResolution = rule ? String(rule.allowed_resolution) : "refund";
-  const [resolution, setResolution] = useState<string>(allowedResolution);
-
-  // The endpoint's precondition guarantees a dispute; narrow the response type.
+  notice,
+  busy,
+}: Props) {
+  const { dispute, transaction, rule, actions, agent_runs } = detail;
+  const lastRun = agent_runs.length ? agent_runs[agent_runs.length - 1] : null;
+  const [resolution, setResolution] = useState<Resolution>("refund");
   if (!dispute) return null;
-
-  const txn = detail.transaction;
-  const actions = [...(detail.actions ?? [])].reverse();
-  const runs = detail.agent_runs ?? [];
-  const amount = Number(dispute.amount_cents);
+  const closed = dispute.status === "resolved" || dispute.status === "rejected";
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Case, transaction, and the governing rule side by side. */}
-      <Card>
-        <CardHeader className="flex-row items-center justify-between gap-2">
-          <CardTitle>
-            Dispute #{Number(dispute.id)} · {labelize(String(dispute.reason_code))}
-          </CardTitle>
-          <StatusBadge status={String(dispute.status)} />
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-3">
-          <Field label="Transaction">
-            <div className="text-sm">{String(txn?.merchant ?? "")}</div>
-            <div className="text-muted-foreground text-xs">
-              {formatCents(Number(txn?.amount_cents))} · card ····
-              {String(txn?.card_last4 ?? "")}
-            </div>
-            <div className="text-muted-foreground text-xs">
-              {String(txn?.account_ref ?? "")} · {formatTime(Number(txn?.occurred_at))}
-            </div>
-          </Field>
-          <Field label="Dispute amount">
-            <div className="text-lg font-semibold">{formatCents(amount)}</div>
-          </Field>
-          <Field label="Governing rule">
-            {rule ? (
-              <div className="text-xs leading-relaxed">
-                <div>
-                  Allowed:{" "}
-                  <span className="text-foreground font-medium">
-                    {labelize(String(rule.allowed_resolution))}
-                  </span>
-                </div>
-                <div>
-                  Ceiling:{" "}
-                  <span className="text-foreground font-medium">
-                    {formatCents(Number(rule.max_auto_resolve_cents))}
-                  </span>
-                </div>
-                <div>
-                  Min role:{" "}
-                  <span className="text-foreground font-medium">
-                    {labelize(String(rule.requires_role))}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <span className="text-muted-foreground text-xs">No rule</span>
-            )}
-          </Field>
-        </CardContent>
-      </Card>
-
-      {/* The two governed actions: propose (agent) and apply (rule-guarded). */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="size-4 text-primary" /> AI triage
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p className="text-muted-foreground text-sm">
-              The agent classifies the case and proposes a resolution inside the
-              rule. It proposes only. It never applies.
-            </p>
-            <Button onClick={onTriage} disabled={triaging} className="gap-1.5">
-              <Bot className="size-4" />
-              {triaging ? "Running agent..." : "Run agent triage"}
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Gavel className="size-4 text-primary" /> Apply resolution
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <Select value={resolution} onValueChange={setResolution}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RESOLUTIONS.map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {labelize(r)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              onClick={() => onResolve(resolution)}
-              disabled={resolving}
-              variant="secondary"
-              className="gap-1.5"
-            >
-              <ShieldCheck className="size-4" />
-              {resolving ? "Checking rule..." : `Apply for ${formatCents(amount)}`}
-            </Button>
-            {lastResolve && (
-              <div
-                className={cn(
-                  "flex items-start gap-2 rounded-md border p-3 text-sm",
-                  lastResolve.outcome === "applied"
-                    ? "border-success/40 bg-success/10"
-                    : "border-destructive/40 bg-destructive/10",
-                )}
-              >
-                {lastResolve.outcome === "applied" ? (
-                  <CheckCircle2 className="text-success mt-0.5 size-4 shrink-0" />
-                ) : (
-                  <Ban className="text-destructive mt-0.5 size-4 shrink-0" />
-                )}
-                <div>
-                  <div className="font-medium">
-                    {lastResolve.outcome === "applied"
-                      ? "Resolution applied"
-                      : "Blocked by the rule"}
-                  </div>
-                  <div className="text-muted-foreground">
-                    {String(lastResolve.message)}
-                  </div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-5">
+      {/* Case header */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold tracking-tight">Dispute #{dispute.id}</h2>
+            <Badge variant="outline" className={statusClass(dispute.status)}>
+              {label(dispute.status)}
+            </Badge>
+          </div>
+          <p className="text-muted-foreground mt-0.5 text-sm">
+            {label(dispute.reason_code)} · {money(dispute.amount_cents)}
+            {dispute.resolution ? ` · resolved as ${label(dispute.resolution)}` : ""}
+          </p>
+        </div>
       </div>
 
-      {/* What the agent proposed, most recent first. */}
-      {runs.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Agent proposals</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            {runs.map((run) => (
+      {/* Transaction + governing rule, side by side */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="bg-card flex flex-col gap-1 rounded-lg border p-3">
+          <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+            Transaction
+          </span>
+          {transaction ? (
+            <>
+              <span className="text-sm font-medium">{transaction.merchant}</span>
+              <span className="text-muted-foreground text-xs">
+                {money(transaction.amount_cents)} · ****{transaction.card_last4} ·{" "}
+                {transaction.account_ref}
+              </span>
+              <span className="text-muted-foreground text-xs">{when(transaction.occurred_at)}</span>
+            </>
+          ) : (
+            <span className="text-muted-foreground text-sm">Not found</span>
+          )}
+        </div>
+
+        <div className="bg-card flex flex-col gap-1 rounded-lg border p-3">
+          <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+            Governing rule
+          </span>
+          {rule ? (
+            <>
+              <span className="text-sm font-medium">{label(rule.reason_code)}</span>
+              <span className="text-muted-foreground text-xs">
+                Allows {label(rule.allowed_resolution)} · needs {label(rule.requires_role)}
+              </span>
+              <span className="text-muted-foreground text-xs">
+                Auto-resolves up to {money(rule.max_auto_resolve_cents)}
+              </span>
+            </>
+          ) : (
+            <span className="text-muted-foreground text-sm">No rule</span>
+          )}
+        </div>
+      </div>
+
+      {/* AI triage */}
+      <div className="border-primary/30 bg-primary/5 flex flex-col gap-2 rounded-lg border p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Bot className="text-primary size-4" />
+            <span className="text-sm font-semibold">AI triage</span>
+          </div>
+          <Button size="sm" variant="secondary" disabled={busy} onClick={onTriage}>
+            <Sparkles className="size-4" />
+            Run agent triage
+          </Button>
+        </div>
+        {lastRun ? (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-sm">{lastRun.classification}</p>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <Badge variant="outline">
+                Proposes {label(lastRun.proposed_resolution) || "—"}
+              </Badge>
+              {lastRun.allowed ? (
+                <span className="text-primary inline-flex items-center gap-1">
+                  <ShieldCheck className="size-3.5" /> Within policy ceiling
+                </span>
+              ) : (
+                <span className="text-destructive inline-flex items-center gap-1">
+                  <ShieldAlert className="size-3.5" /> {lastRun.blocked_reason || "Over ceiling"}
+                </span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            The agent has not weighed in yet. Run triage to get a policy-bounded proposal.
+          </p>
+        )}
+      </div>
+
+      {/* Rule-guarded apply */}
+      <div className="flex flex-col gap-2 rounded-lg border p-3">
+        <div className="flex items-center gap-2">
+          <Gavel className="text-muted-foreground size-4" />
+          <span className="text-sm font-semibold">Apply resolution</span>
+        </div>
+        <p className="text-muted-foreground text-xs">
+          Acting as <span className="text-foreground font-medium">{current.name}</span> ({current.kind},{" "}
+          {label(current.role)}) with a resolve ceiling of {money(current.resolve_limit_cents)}. The
+          same guard runs for a human and the AI agent.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={resolution} onValueChange={(v) => setResolution(v as Resolution)}>
+            <SelectTrigger className="h-9 w-[150px] text-xs" disabled={closed}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RESOLUTIONS.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {label(r)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button size="sm" disabled={busy || closed} onClick={() => onResolve(resolution)}>
+            <Gavel className="size-4" />
+            Apply
+          </Button>
+        </div>
+        {notice && (
+          <div
+            className={`mt-1 flex items-start gap-2 rounded-md border p-2.5 text-sm ${
+              notice.tone === "ok"
+                ? "border-primary/30 bg-primary/10 text-foreground"
+                : notice.tone === "blocked"
+                  ? "border-destructive/30 bg-destructive/10 text-foreground"
+                  : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {notice.tone === "ok" ? (
+              <CircleCheck className="text-primary mt-0.5 size-4 shrink-0" />
+            ) : notice.tone === "blocked" ? (
+              <ShieldAlert className="text-destructive mt-0.5 size-4 shrink-0" />
+            ) : null}
+            <span>{notice.text}</span>
+          </div>
+        )}
+      </div>
+
+      <Separator />
+
+      {/* Interleaved audit trail */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <ScrollText className="text-muted-foreground size-4" />
+          <h3 className="text-sm font-semibold tracking-tight">Audit trail</h3>
+          <span className="text-muted-foreground text-xs">
+            {actions.length} action{actions.length === 1 ? "" : "s"}, human and agent interleaved
+          </span>
+        </div>
+        <ol className="flex flex-col gap-2">
+          {actions.map((a) => (
+            <li key={a.id} className="bg-card flex items-start gap-3 rounded-lg border p-3">
               <div
-                key={Number(run.id)}
-                className="border-border flex flex-col gap-1 rounded-md border p-3"
+                className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full ${
+                  a.actor_kind === "agent" ? "bg-primary/15 text-primary" : "bg-muted text-foreground"
+                }`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium">
-                    Proposed {labelize(String(run.proposed_resolution))} ·{" "}
-                    {formatCents(Number(run.proposed_amount_cents))}
-                  </span>
-                  {run.allowed ? (
-                    <span className="text-success text-xs font-medium">
-                      Within policy
-                    </span>
-                  ) : (
-                    <span className="text-destructive text-xs font-medium">
-                      Needs supervisor
-                    </span>
-                  )}
-                </div>
-                <p className="text-muted-foreground text-sm">
-                  {String(run.classification)}
-                </p>
-                {run.blocked_reason && (
-                  <p className="text-destructive/90 text-xs">
-                    {String(run.blocked_reason)}
-                  </p>
+                {a.actor_kind === "agent" ? (
+                  <Bot className="size-4" />
+                ) : (
+                  <User className="size-4" />
                 )}
               </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* The shared audit trail: human and agent actions interleaved. */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Audit trail (newest first)</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {actions.map((a) => (
-            <div
-              key={Number(a.id)}
-              className="border-border flex items-start justify-between gap-3 rounded-md border p-3"
-            >
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-1 flex-col gap-0.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <ActionBadge action={String(a.action)} />
-                  <ActorBadge kind={String(a.actor_kind)} />
+                  <span className="text-sm font-medium">{actorName(a, operatorsById)}</span>
+                  <Badge
+                    variant="outline"
+                    className={`text-[11px] ${a.actor_kind === "agent" ? "border-primary/40 text-primary" : ""}`}
+                  >
+                    {a.actor_kind}
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className={`border-transparent text-[11px] ${actionTone[a.action] ?? ""}`}
+                  >
+                    {label(a.action)}
+                  </Badge>
+                  <span className="text-muted-foreground ml-auto text-xs">{when(a.created_at)}</span>
                 </div>
-                <p className="text-muted-foreground text-sm">{String(a.detail)}</p>
+                {a.detail && <p className="text-muted-foreground text-sm">{a.detail}</p>}
               </div>
-              <span className="text-muted-foreground shrink-0 text-xs">
-                {formatTime(Number(a.created_at))}
-              </span>
-            </div>
+            </li>
           ))}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-        {label}
-      </span>
-      {children}
+        </ol>
+      </div>
     </div>
   );
 }

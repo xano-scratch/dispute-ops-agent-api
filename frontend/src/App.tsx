@@ -1,247 +1,272 @@
-import { useCallback, useEffect, useState } from "react";
-import { Scale, RefreshCw, AlertCircle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ShieldCheck, User, Bot, Loader2, AlertCircle } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { IdentityBar, type IdentityKey } from "@/components/IdentityBar";
-import { DisputeQueue } from "@/components/DisputeQueue";
-import { DisputeDetail } from "@/components/DisputeDetail";
-import * as api from "@/lib/api";
-import type {
-  CasesGetResponse,
-  CasesListResponse,
-  CasesOpenBody,
-  CasesResolveResponse,
-  Operator,
-  SeedResponse,
-} from "@/lib/api";
 
-type Operators = Record<IdentityKey, Operator>;
-type DisputeRow = CasesListResponse["disputes"][number];
-type Transaction = SeedResponse["transactions"][number];
+import { api } from "@/lib/api";
+import type {
+  SeededEnv,
+  IdentityKey,
+  Identity,
+  Dispute,
+  CaseDetail,
+  Resolution,
+  ReasonCode,
+} from "@/lib/api";
+import { money, label } from "@/lib/format";
+import { DisputeQueue } from "@/components/DisputeQueue";
+import { DisputeDetail, type Notice } from "@/components/DisputeDetail";
+
+const IDENTITY_KEYS: IdentityKey[] = ["triage", "supervisor", "agent"];
+
+function readParam(name: string): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get(name);
+}
 
 export default function App() {
-  const [operators, setOperators] = useState<Operators | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [identity, setIdentity] = useState<IdentityKey>("triage");
-  const [disputes, setDisputes] = useState<DisputeRow[]>([]);
-  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [seed, setSeed] = useState<SeededEnv | null>(null);
+  const [currentKey, setCurrentKey] = useState<IdentityKey>("agent");
+  const [disputes, setDisputes] = useState<Dispute[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [detail, setDetail] = useState<CasesGetResponse | null>(null);
-  const [lastResolve, setLastResolve] = useState<CasesResolveResponse | null>(
-    null,
-  );
-  const [booting, setBooting] = useState(true);
-  const [triaging, setTriaging] = useState(false);
-  const [resolving, setResolving] = useState(false);
-  const [opening, setOpening] = useState(false);
+  const [detail, setDetail] = useState<CaseDetail | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
 
-  const openDetail = useCallback(async (id: number) => {
-    setSelectedId(id);
-    setLastResolve(null);
-    try {
-      setDetail(await api.getCase(id));
-    } catch (e) {
-      setError(errMessage(e));
-    }
+  const current: Identity | null = seed ? seed.identities[currentKey] : null;
+  const token = current?.token ?? "";
+
+  const operatorsById = useMemo(() => {
+    const map: Record<number, Identity> = {};
+    if (seed) for (const k of IDENTITY_KEYS) map[seed.identities[k].id] = seed.identities[k];
+    return map;
+  }, [seed]);
+
+  // Bootstrap: seed the environment, read deep-link params, pick the first case.
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const s = await api.seed();
+        if (!live) return;
+        setSeed(s);
+        const asParam = readParam("as");
+        if (asParam && IDENTITY_KEYS.includes(asParam as IdentityKey)) {
+          setCurrentKey(asParam as IdentityKey);
+        }
+        const wanted = Number(readParam("dispute"));
+        const first = s.disputes[0]?.id ?? null;
+        setSelectedId(Number.isFinite(wanted) && wanted > 0 ? wanted : first);
+      } catch (e) {
+        if (live) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (live) setReady(true);
+      }
+    })();
+    return () => {
+      live = false;
+    };
   }, []);
 
-  const refreshList = useCallback(
-    async (status: string, autoSelect: boolean) => {
-      const res = await api.listCases(status || undefined);
-      const rows = res.disputes ?? [];
-      setDisputes(rows);
-      if (autoSelect && rows.length > 0) {
-        const wanted = new URLSearchParams(window.location.search).get(
-          "dispute",
-        );
-        const match = wanted && rows.some((r) => String(r.id) === wanted);
-        await openDetail(match ? Number(wanted) : Number(rows[0].id));
-      }
-    },
-    [openDetail],
-  );
-
-  const boot = useCallback(async (reset: boolean) => {
-    setBooting(true);
-    setError(null);
+  const loadList = useCallback(async () => {
+    if (!token) return;
     try {
-      const s = await api.seed(reset);
-      const ops: Operators = {
-        triage: s.triage,
-        supervisor: s.supervisor,
-        agent: s.agent,
-      };
-      setOperators(ops);
-      setTransactions(s.transactions ?? []);
-      const asParam = new URLSearchParams(window.location.search).get("as");
-      const idKey: IdentityKey =
-        asParam === "supervisor" || asParam === "agent" ? asParam : "triage";
-      setIdentity(idKey);
-      api.setAuthToken(ops[idKey].token);
-      setStatusFilter("");
-      setLastResolve(null);
-      await refreshList("", true);
+      const rows = await api.listCases(token, statusFilter === "all" ? undefined : statusFilter);
+      setDisputes(rows);
     } catch (e) {
-      setError(errMessage(e));
-    } finally {
-      setBooting(false);
+      setError(e instanceof Error ? e.message : String(e));
     }
-  }, [refreshList]);
+  }, [token, statusFilter]);
+
+  const loadDetail = useCallback(async () => {
+    if (!token || selectedId == null) {
+      setDetail(null);
+      return;
+    }
+    try {
+      const d = await api.getCase(token, selectedId);
+      setDetail(d);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [token, selectedId]);
 
   useEffect(() => {
-    void boot(false);
-  }, [boot]);
+    void loadList();
+  }, [loadList]);
+  useEffect(() => {
+    void loadDetail();
+  }, [loadDetail]);
 
-  function changeIdentity(key: IdentityKey) {
-    if (!operators) return;
-    setIdentity(key);
-    api.setAuthToken(operators[key].token);
-    setLastResolve(null);
-  }
-
-  async function onStatusFilter(status: string) {
-    setStatusFilter(status);
-    try {
-      await refreshList(status, false);
-    } catch (e) {
-      setError(errMessage(e));
-    }
+  // Switching identity clears the last outcome banner — it belonged to the prior caller.
+  function switchTo(key: IdentityKey) {
+    setCurrentKey(key);
+    setNotice(null);
   }
 
   async function onTriage() {
-    if (selectedId == null) return;
-    setTriaging(true);
-    setError(null);
+    if (!token || selectedId == null) return;
+    setBusy(true);
+    setNotice({ tone: "info", text: "Running agent triage…" });
     try {
-      await api.triage({ dispute_id: selectedId });
-      await api.getCase(selectedId).then(setDetail);
-      await refreshList(statusFilter, false);
+      const r = await api.triage(token, selectedId);
+      setNotice(
+        r.allowed
+          ? { tone: "info", text: `Agent proposes ${label(r.proposed_resolution)}, within the policy ceiling.` }
+          : {
+              tone: "blocked",
+              text: String(r.blocked_reason) || "Agent proposal is over the policy ceiling.",
+            },
+      );
+      await Promise.all([loadDetail(), loadList()]);
     } catch (e) {
-      setError(errMessage(e));
+      setNotice({ tone: "blocked", text: e instanceof Error ? e.message : String(e) });
     } finally {
-      setTriaging(false);
+      setBusy(false);
     }
   }
 
-  async function onResolve(resolution: string) {
-    if (selectedId == null || !detail || !detail.dispute) return;
-    setResolving(true);
-    setError(null);
+  async function onResolve(resolution: Resolution) {
+    if (!token || selectedId == null) return;
+    setBusy(true);
     try {
-      const res = await api.resolveCase({
-        dispute_id: selectedId,
-        resolution: resolution as api.CasesResolveBody["resolution"],
-        amount_cents: Number(detail.dispute.amount_cents),
-      });
-      setLastResolve(res);
-      await api.getCase(selectedId).then(setDetail);
-      await refreshList(statusFilter, false);
+      const r = await api.resolve(token, { dispute_id: selectedId, resolution });
+      setNotice(
+        r.applied
+          ? { tone: "ok", text: `Applied ${label(resolution)}. The dispute is resolved.` }
+          : { tone: "blocked", text: String(r.reason) || "Blocked by the rule guard." },
+      );
+      await Promise.all([loadDetail(), loadList()]);
     } catch (e) {
-      setError(errMessage(e));
+      setNotice({ tone: "blocked", text: e instanceof Error ? e.message : String(e) });
     } finally {
-      setResolving(false);
+      setBusy(false);
     }
   }
 
-  async function onOpen(body: CasesOpenBody) {
-    setOpening(true);
-    setError(null);
+  async function onOpen(transactionId: number, reason: ReasonCode) {
+    if (!token) return;
+    setBusy(true);
     try {
-      const res = await api.openCase(body);
-      await refreshList(statusFilter, false);
-      await openDetail(Number(res.dispute.id));
+      const r = await api.open(token, { transaction_id: transactionId, reason_code: reason });
+      setNotice({ tone: "info", text: `Opened dispute #${r.dispute.id}.` });
+      await loadList();
+      setSelectedId(r.dispute.id);
     } catch (e) {
-      setError(errMessage(e));
+      setNotice({ tone: "blocked", text: e instanceof Error ? e.message : String(e) });
     } finally {
-      setOpening(false);
+      setBusy(false);
     }
   }
 
   return (
     <div className="bg-background text-foreground min-h-screen">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6 p-4 sm:p-8">
-        <header className="flex flex-col gap-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-primary/15 text-primary flex size-10 items-center justify-center rounded-lg">
-                <Scale className="size-5" />
+      <header className="border-b">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="text-primary size-5" />
+                <h1 className="text-xl font-semibold tracking-tight">Dispute Ops Agent API</h1>
               </div>
-              <div>
-                <h1 className="text-2xl font-semibold tracking-tight">
-                  Dispute Ops Agent API
-                </h1>
-                <p className="text-muted-foreground text-sm">
-                  One governed rule layer for a human ops agent and an AI agent.
-                </p>
+              <p className="text-muted-foreground max-w-2xl text-sm">
+                A human ops agent and an AI agent call the same permissioned, audited endpoints, so one
+                rule layer decides every chargeback the same way for people and agents.
+              </p>
+              <div className="mt-1 flex flex-wrap gap-2">
+                <Badge variant="secondary">Play 4 · Agent Intelligence Layer</Badge>
+                <Badge variant="secondary">Banking · disputes</Badge>
+                <Badge variant="outline">API-layer RBAC</Badge>
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void boot(true)}
-              disabled={booting}
-              className="gap-1.5"
-            >
-              <RefreshCw className="size-3.5" />
-              Reset data
-            </Button>
-          </div>
-          {operators && (
-            <IdentityBar
-              operators={operators}
-              current={identity}
-              onChange={changeIdentity}
-            />
-          )}
-        </header>
 
+            {/* Identity switcher */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-muted-foreground text-xs font-medium">Acting as</span>
+              <div className="bg-muted flex gap-1 rounded-lg p-1">
+                {IDENTITY_KEYS.map((k) => {
+                  const id = seed?.identities[k];
+                  const active = k === currentKey;
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => switchTo(k)}
+                      disabled={!id}
+                      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                        active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {k === "agent" ? <Bot className="size-3.5" /> : <User className="size-3.5" />}
+                      {id ? id.name : label(k)}
+                    </button>
+                  );
+                })}
+              </div>
+              {current && (
+                <span className="text-muted-foreground text-right text-xs">
+                  {label(current.role)} · {current.kind} · ceiling {money(current.resolve_limit_cents)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-6xl px-6 py-6">
         {error && (
-          <div className="border-destructive/40 bg-destructive/10 text-destructive flex items-center gap-2 rounded-md border p-3 text-sm">
-            <AlertCircle className="size-4 shrink-0" />
+          <div className="border-destructive/40 bg-destructive/10 mb-4 flex items-center gap-2 rounded-lg border p-3 text-sm">
+            <AlertCircle className="text-destructive size-4" />
             {error}
           </div>
         )}
 
-        {booting ? (
-          <p className="text-muted-foreground py-16 text-center">
-            Seeding the workspace and signing in...
-          </p>
+        {!ready ? (
+          <div className="text-muted-foreground flex items-center gap-2 py-20 text-sm">
+            <Loader2 className="size-4 animate-spin" />
+            Seeding the environment…
+          </div>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
-            <DisputeQueue
-              disputes={disputes}
-              transactions={transactions}
-              selectedId={selectedId}
-              onSelect={openDetail}
-              statusFilter={statusFilter}
-              onStatusFilter={onStatusFilter}
-              onOpen={onOpen}
-              opening={opening}
-            />
-            {detail ? (
-              <DisputeDetail
-                key={selectedId}
-                detail={detail}
-                onTriage={onTriage}
-                onResolve={onResolve}
-                triaging={triaging}
-                resolving={resolving}
-                lastResolve={lastResolve}
+          <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
+            <aside className="lg:sticky lg:top-6 lg:self-start">
+              <DisputeQueue
+                disputes={disputes}
+                transactions={seed?.transactions ?? []}
+                statusFilter={statusFilter}
+                onStatusChange={setStatusFilter}
+                selectedId={selectedId}
+                onSelect={(id) => {
+                  setSelectedId(id);
+                  setNotice(null);
+                }}
+                onOpen={onOpen}
+                busy={busy}
               />
-            ) : (
-              <p className="text-muted-foreground py-16 text-center">
-                Select a dispute to see its case, run the AI triage, and apply a
-                resolution through the rule guard.
-              </p>
-            )}
+            </aside>
+
+            <section>
+              {detail && current ? (
+                <DisputeDetail
+                  detail={detail}
+                  operatorsById={operatorsById}
+                  current={current}
+                  onTriage={onTriage}
+                  onResolve={onResolve}
+                  notice={notice}
+                  busy={busy}
+                />
+              ) : (
+                <div className="text-muted-foreground flex items-center justify-center rounded-lg border border-dashed py-24 text-sm">
+                  Select a dispute to see its case, rule, and audit trail.
+                </div>
+              )}
+            </section>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
-}
-
-function errMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }

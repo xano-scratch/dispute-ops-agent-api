@@ -1,47 +1,45 @@
-import { workspace } from "@xanots/core";
+import { workspace } from "@xanots/sdk";
 
-import { operators } from "./tables/operators.js";
 import { transactions } from "./tables/transactions.js";
+import { operators } from "./tables/operators.js";
 import { disputes } from "./tables/disputes.js";
-import { decisionRules } from "./tables/decision-rules.js";
-import { agentRuns } from "./tables/agent-runs.js";
-import { disputeActions } from "./tables/dispute-actions.js";
+import { decision_rules } from "./tables/decision_rules.js";
+import { agent_runs } from "./tables/agent_runs.js";
+import { dispute_actions } from "./tables/dispute_actions.js";
 
-import { disputeApi } from "./api/dispute-group.js";
-import { disputeTriageAgent } from "./agents/dispute-triage-agent.js";
+import { disputeApi } from "./api/dispute.js";
+import { disputeTriageAgent } from "./agents/dispute_triage_agent.js";
 
 import { seedQuery } from "./api/seed.js";
 import { loginQuery } from "./api/login.js";
-import { casesOpenQuery } from "./api/cases-open.js";
+import { openQuery } from "./api/open.js";
 import { triageQuery } from "./api/triage.js";
-import { casesResolveQuery } from "./api/cases-resolve.js";
-import { casesGetQuery } from "./api/cases-get.js";
-import { casesListQuery } from "./api/cases-list.js";
+import { resolveQuery } from "./api/resolve.js";
+import { casesListQuery } from "./api/cases_list.js";
+import { casesGetQuery } from "./api/cases_get.js";
 
 /**
- * The dispute-ops-agent-api backend.
- *
- * A governed access layer over a bank's transaction-dispute domain. A human ops
+ * Dispute Ops Agent API — a governed banking dispute backend where a human ops
  * agent and an AI agent call the SAME permissioned, audited endpoints, so one
  * rule layer decides every chargeback the same way for people and agents.
  */
 export default workspace("dispute-ops-agent-api")
   .registerTables([
-    operators,
     transactions,
+    operators,
     disputes,
-    decisionRules,
-    agentRuns,
-    disputeActions,
+    decision_rules,
+    agent_runs,
+    dispute_actions,
   ])
   .registerApiGroups([disputeApi])
   .registerAgents([disputeTriageAgent])
   .registerQueries([
     seedQuery,
     loginQuery,
-    casesOpenQuery,
+    openQuery,
     triageQuery,
-    casesResolveQuery,
-    casesGetQuery,
+    resolveQuery,
     casesListQuery,
+    casesGetQuery,
   ]);

@@ -1,73 +1,55 @@
-import { query, input, s, ref, inp, expr, c, obj } from "@xanots/core";
-import { disputeApi } from "./dispute-group.js";
+import { query, input, s, c, ref, inp, expr } from "@xanots/sdk";
+import { disputeApi } from "./dispute.js";
 import { operators } from "../tables/operators.js";
 
 /**
- * POST api:dispute/login — exchange email + password for a token, so the demo
- * can switch between the human roles and the agent identity. Password is taken
- * as text() (not password()) so it is not double-hashed before check_password.
+ * Exchange email + password for a token. Lets the demo switch between the two
+ * human roles and the agent identity by logging in as each.
+ *
+ * The password is taken as `input.text()` (not `input.password`, which would
+ * hash the submission a second time), and the read names the internal `password`
+ * column in `output` so `check_password` can see the stored hash.
  */
 export const loginQuery = query({
   name: "login",
   verb: "POST",
   apiGroup: disputeApi,
-  auth: false,
   input: {
-    email: input.email({ required: true, methods: ["lower", "trim"] }),
+    email: input.email({ required: true, methods: ["lower"] }),
     password: input.text({ required: true }),
   },
   stack: [
-    // `output` must name the internal password column to read its hash.
     s.db.get({
       table: operators,
       fieldName: "email",
       fieldValue: inp("email"),
-      output: [
-        "id",
-        "email",
-        "name",
-        "kind",
-        "role",
-        "resolve_limit_cents",
-        "password",
-      ],
-      as: "u",
+      output: ["id", "name", "email", "kind", "role", "resolve_limit_cents", "password"],
+      as: "op",
     }),
     s.precondition({
-      expr: expr(ref("u"), "!=", c.null()),
-      error: c.text("That email and password do not match."),
-      error_type: "unauthorized",
+      expr: expr(ref("op", { safe: true }), "!=", c.null()),
+      error: c.text("No operator with that email."),
+      error_type: "notfound",
     }),
     s.security.check_password({
       text_password: inp("password"),
-      hash_password: ref("u.password"),
+      hash_password: ref("op.password"),
       as: "ok",
     }),
     s.precondition({
       expr: expr(ref("ok"), "=", c.bool(true)),
-      error: c.text("That email and password do not match."),
+      error: c.text("Wrong password."),
       error_type: "unauthorized",
     }),
-    s.security.create_auth_token({
-      table: operators,
-      id: ref("u.id"),
-      as: "token",
-    }),
+    s.security.create_auth_token({ table: operators, id: ref("op.id"), as: "token" }),
   ],
   response: {
     token: ref("token"),
-    operator: obj({
-      id: ref("u.id"),
-      name: ref("u.name"),
-      email: ref("u.email"),
-      kind: ref("u.kind"),
-      role: ref("u.role"),
-      resolve_limit_cents: ref("u.resolve_limit_cents"),
-    }),
+    id: ref("op.id"),
+    name: ref("op.name"),
+    email: ref("op.email"),
+    kind: ref("op.kind"),
+    role: ref("op.role"),
+    resolve_limit_cents: ref("op.resolve_limit_cents"),
   },
 });
-
-export type LoginBody = import("@xanots/core").InferInput<typeof loginQuery>;
-export type LoginResponse = import("@xanots/core").InferResponse<
-  typeof loginQuery
->;

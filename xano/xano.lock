@@ -3,7 +3,8 @@
   "objects": {
     "app:dispute": {
       "guid": "165fd981caec0c880fc9dffbc2ba546f",
-      "canonical": "dispute"
+      "canonical": "dispute",
+      "canonical_source": "code"
     },
     "dbo:agent_runs": {
       "guid": "9c0eca64d337d79c4a855a42712b7d71"
@@ -23,30 +24,31 @@
     "dbo:transactions": {
       "guid": "2a5b3c18b00ba6132fb855f1a2686ac8"
     },
-    "query:cases": {
-      "guid": "b3baded62268ece5be2c28f9d5367f0a"
+    "query:dispute|GET|cases": {
+      "guid": "ae8727df4ed3b709aabccc5f3136c858"
     },
-    "query:cases/open": {
-      "guid": "8eeadc08370bb2a7195947989781206a"
+    "query:dispute|GET|cases/{dispute_id}": {
+      "guid": "129e57ee8ca38d0f22f70e5413e1f625"
     },
-    "query:cases/resolve": {
-      "guid": "bf651e95075325ac6009987f44fca8fb"
+    "query:dispute|POST|cases/open": {
+      "guid": "0e3c61a9afc4f3932379df64204f70d8"
     },
-    "query:cases/{dispute_id}": {
-      "guid": "726db5820aebd11f7766a31bddbfdd50"
+    "query:dispute|POST|cases/resolve": {
+      "guid": "5f9379234ec3b75e50599f0d35a4bf17"
     },
-    "query:login": {
-      "guid": "e8053a45b7e1a8038df6379e68348218"
+    "query:dispute|POST|login": {
+      "guid": "9403dd731cf529a6be1e8363a451ebe7"
     },
-    "query:seed": {
-      "guid": "5baef5a607384059d7df08d2456fe9d1"
+    "query:dispute|POST|seed": {
+      "guid": "d7f9429d2590e796a48c8ef9a8a3a385"
     },
-    "query:triage": {
-      "guid": "8233c2d0cc8ff9f9e616ca38f9d58eb5"
+    "query:dispute|POST|triage": {
+      "guid": "1ca031fa3b366603bbc95a6e379f1ef6"
     },
     "toolset:dispute_triage_agent": {
       "guid": "e47f231262726f837f9a909e31223811",
-      "canonical": "tmqPhrUa"
+      "canonical": "vhdqtHH0",
+      "canonical_source": "minted"
     }
   }
 }

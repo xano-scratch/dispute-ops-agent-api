@@ -7,10 +7,10 @@ The backend lives in [`index.ts`](index.ts) and is a single default-exported
 
 Everything you need is in the package itself:
 
-- `node_modules/@xanots/core/llms.txt` — the router: the mental model, the deploy contract, every gotcha, and control flow. Read it in full first; it ends with a list of topic files and the condition for opening each.
-- `node_modules/@xanots/core/llms/*.md` — one file per surface. Open the one or two whose condition matches the task; skip the rest.
-- The published TypeScript types and JSDoc (`node_modules/@xanots/core/**/*.d.ts`).
-- `node_modules/@xanots/core/manifest.json` — the exhaustive reference; grep or `jq` the one entry you need rather than reading it whole.
+- `node_modules/@xanots/sdk/llms.txt` — the router: the mental model, the deploy contract, every gotcha, and control flow. Read it in full first; it ends with a list of topic files and the condition for opening each.
+- `node_modules/@xanots/sdk/llms/*.md` — one file per surface. Open the one or two whose condition matches the task; skip the rest.
+- The published TypeScript types and JSDoc (`node_modules/@xanots/sdk/**/*.d.ts`).
+- `node_modules/@xanots/sdk/manifest.json` — the exhaustive reference; grep or `jq` the one entry you need rather than reading it whole.
 
 Author against those signatures — don't invent an API that isn't there.
 
@@ -75,23 +75,14 @@ npm run xano:test      # runs both kinds; exits 5 if any fail
 
 `npx xanots deploy ./xano/index.ts --test` does both in one step, and
 `npx xanots test list` shows what a deployed environment carries without running
-anything. Read `node_modules/@xanots/core/llms/tests.md` before authoring either
+anything. Read `node_modules/@xanots/sdk/llms/tests.md` before authoring either
 kind.
 
 ### Event-driven objects
 
 A scheduled `task`, an `mcpServer`, and every trigger **fire normally on an
-ephemeral** — `deploy`'s default destination — so test them by deploying and
-letting them run.
-
-Under `--dest sandbox` they **deploy but do not fire**: they import cleanly, never
-execute, and there's no way to fire one manually (a table insert/update/delete does
-NOT run its trigger). Only synchronously-invoked objects — queries, functions, and
-the agents an endpoint calls with `s.ai.agent.run` — run there. If you must stay on
-the sandbox, factor the body into a `defineFunction` you can also call directly
-(e.g. from a query via `s.function.run`) and put the assertions on THAT — a
-`tests` entry on the function, or a `workflowTest` that calls it. See
-`llms.txt` for the full guidance.
+ephemeral** — where `deploy` sends them — so test them by deploying and letting
+them run.
 
 ## Wire the frontend
 
@@ -109,4 +100,4 @@ Keep the client bundle lean (**split route metadata from stack-heavy authoring**
   — drags that whole graph in. For those, don't import the def in the browser:
   declare its `{ path, verb }` as plain metadata (see the `ROUTES` example in
   `api.ts`) and verify it against the compiled bundle with
-  `npx xanots paths xano/index.ts`.
+  `npx xanots routes xano/index.ts`.

@@ -1,71 +1,51 @@
-import {
-  query,
-  input,
-  s,
-  ref,
-  inp,
-  auth,
-  expr,
-  col,
-  c,
-  withFilters,
-  fl,
-} from "@xanots/core";
-import { disputeApi } from "./dispute-group.js";
-import { disputeTriageAgent } from "../agents/dispute-triage-agent.js";
+import { query, input, s, c, ref, inp, auth, expr, col, and } from "@xanots/sdk";
+import { disputeApi } from "./dispute.js";
+import { disputeTriageAgent } from "../agents/dispute_triage_agent.js";
 import { operators } from "../tables/operators.js";
 import { transactions } from "../tables/transactions.js";
-import { decisionRules } from "../tables/decision-rules.js";
+import { decision_rules } from "../tables/decision_rules.js";
 import { disputes } from "../tables/disputes.js";
-import { disputeActions } from "../tables/dispute-actions.js";
-import { agentRuns } from "../tables/agent-runs.js";
+import { agent_runs } from "../tables/agent_runs.js";
+import { dispute_actions } from "../tables/dispute_actions.js";
 
 /**
- * POST api:dispute/triage — the AI agent endpoint. It reads one dispute, hands
- * the case and its governing rule to `s.ai.agent.run`, and records what the
- * agent proposed. The agent proposes only. It never writes the final
- * resolution, and if its proposed amount is over the rule ceiling the proposal
- * is still recorded with allowed=false. The proposal is attributed to the AI
- * agent identity (actor_kind=agent) in the shared audit trail.
+ * The AI agent endpoint (Play 4). `s.ai.agent.run` classifies the dispute and
+ * proposes a resolution inside the policy the endpoint reads for it. It PROPOSES
+ * only: it records an `agent_runs` row and a `propose` action tagged `agent`, and
+ * never writes the final resolution.
  *
- * This def imports an agent, so its stack builds a heavy graph. The frontend
- * reads its path/verb from the ROUTES table in src/lib/api.ts and its types
- * from the aliases exported below, so the agent graph never enters the browser
- * bundle (the split-route-metadata rule).
+ * The proposed payout is derived deterministically from the proposed resolution
+ * (refund/partial -> the dispute amount, deny -> 0), never taken from the model,
+ * so a stray model output cannot slip a payout past the ceiling check. When that
+ * payout is over the rule ceiling the run is still recorded, flagged
+ * `allowed = false` with the reason.
  */
 export const triageQuery = query({
   name: "triage",
   verb: "POST",
   apiGroup: disputeApi,
   auth: operators,
-  input: {
-    dispute_id: input.int({ required: true }),
-  },
+  input: { dispute_id: input.int({ required: true }) },
   stack: [
     s.db.get_by_id({ table: disputes, id: inp("dispute_id"), as: "dispute" }),
     s.precondition({
-      expr: expr(ref("dispute"), "!=", c.null()),
-      error: c.text("That dispute does not exist."),
+      expr: expr(ref("dispute", { safe: true }), "!=", c.null()),
+      error: c.text("Dispute not found."),
       error_type: "notfound",
     }),
-    // dispute is non-null past the guard, so these reads are safe.
-    s.db.get_by_id({
-      table: transactions,
-      id: ref("dispute.transaction_id"),
-      as: "txn",
-    }),
+    s.db.get_by_id({ table: transactions, id: ref("dispute.transaction_id"), as: "txn" }),
     s.db.query({
-      table: decisionRules,
+      table: decision_rules,
       where: expr(col("reason_code"), "=", ref("dispute.reason_code")),
       returnType: "single",
       as: "rule",
     }),
     s.precondition({
-      expr: expr(ref("rule"), "!=", c.null()),
+      expr: expr(ref("rule", { safe: true }), "!=", c.null()),
       error: c.text("No decision rule covers this dispute's reason code."),
       error_type: "badrequest",
     }),
-    // The AI agent identity the proposal is attributed to.
+    // The AI agent identity that every agent proposal is attributed to.
     s.db.query({
       table: operators,
       where: expr(col("kind"), "=", c.text("agent")),
@@ -73,120 +53,92 @@ export const triageQuery = query({
       as: "agent_op",
     }),
     s.precondition({
-      expr: expr(ref("agent_op"), "!=", c.null()),
-      error: c.text("No agent identity is configured. Seed the workspace first."),
-      error_type: "badrequest",
+      expr: expr(ref("agent_op", { safe: true }), "!=", c.null()),
+      error: c.text("No agent identity is seeded."),
+      error_type: "standard",
     }),
 
-    // Run the agent with the case and its policy as run inputs.
+    // Run the agent over the dispute + its policy.
     s.ai.agent.run({
       agent: disputeTriageAgent,
       args: {
         reason_code: ref("dispute.reason_code"),
-        merchant: ref("txn.merchant"),
         amount_cents: ref("dispute.amount_cents"),
+        merchant: ref("txn.merchant"),
         allowed_resolution: ref("rule.allowed_resolution"),
         max_auto_resolve_cents: ref("rule.max_auto_resolve_cents"),
       },
       as: "run",
     }),
 
-    // Derive the amount from the proposed resolution so it is deterministic and
-    // cannot dodge the ceiling: a refund (or partial) is capped at the disputed
-    // charge; a denial moves nothing.
-    s.switch({
-      on: ref("run.result.proposed_resolution"),
-      cases: [
-        {
-          when: c.text("deny"),
-          body: [s.set_var("proposed_amount", c.int(0))],
-          break: true,
-        },
-      ],
-      default: [s.set_var("proposed_amount", ref("dispute.amount_cents"))],
+    // Derive the payout deterministically from the proposed resolution.
+    s.set_var("proposed_amount", c.int(0)),
+    s.conditional({
+      when: expr(ref("run.result.proposed_resolution"), "!=", c.text("deny")),
+      then: [s.set_var("proposed_amount", ref("dispute.amount_cents"))],
     }),
 
-    // Policy check on the proposal: within the ceiling → allowed; over it →
-    // recorded but flagged for a supervisor.
+    // Flag a proposal whose payout is over the rule ceiling.
+    s.set_var("agent_allowed", c.bool(true)),
+    s.set_var("agent_block_reason", c.text("")),
     s.conditional({
-      when: expr(
-        ref("proposed_amount"),
-        "<=",
-        ref("rule.max_auto_resolve_cents"),
+      when: and(
+        expr(ref("run.result.proposed_resolution"), "!=", c.text("deny")),
+        expr(ref("dispute.amount_cents"), ">", ref("rule.max_auto_resolve_cents")),
       ),
       then: [
-        s.set_var("allowed", c.bool(true)),
-        s.set_var("blocked_reason", c.null()),
-      ],
-      else: [
-        s.set_var("allowed", c.bool(false)),
+        s.set_var("agent_allowed", c.bool(false)),
         s.set_var(
-          "blocked_reason",
-          c.text(
-            "The proposed amount is over the auto-resolve ceiling for this reason code, so a supervisor must apply it.",
-          ),
+          "agent_block_reason",
+          c.text("Proposed payout is over the rule ceiling; a supervisor must apply it."),
         ),
       ],
     }),
 
-    // A readable record of what the agent was asked.
-    s.set_var(
-      "prompt_summary",
-      withFilters(
-        c.text("Triage a "),
-        fl.concat(ref("dispute.reason_code")),
-        fl.concat(c.text(" dispute on ")),
-        fl.concat(ref("txn.merchant")),
-        fl.concat(c.text(".")),
-      ),
-    ),
-
     s.db.add({
-      table: agentRuns,
+      table: agent_runs,
       row: {
-        dispute_id: ref("dispute.id"),
-        prompt: ref("prompt_summary"),
+        dispute_id: inp("dispute_id"),
+        prompt: c.text("Live agent triage via s.ai.agent.run over the dispute and its policy."),
         classification: ref("run.result.classification"),
         proposed_resolution: ref("run.result.proposed_resolution"),
         proposed_amount_cents: ref("proposed_amount"),
-        allowed: ref("allowed"),
-        blocked_reason: ref("blocked_reason"),
+        allowed: ref("agent_allowed"),
+        blocked_reason: ref("agent_block_reason"),
       },
-      as: "agent_run",
+      as: "ar",
     }),
-
-    // The proposal is an agent action in the shared trail.
     s.db.add({
-      table: disputeActions,
+      table: dispute_actions,
       row: {
-        dispute_id: ref("dispute.id"),
+        dispute_id: inp("dispute_id"),
         actor_id: ref("agent_op.id"),
         actor_kind: "agent",
         action: "propose",
         detail: ref("run.result.classification"),
-        agent_run_id: ref("agent_run.id"),
+        agent_run_id: ref("ar.id"),
       },
     }),
 
-    // Reflect that the case has been triaged.
-    s.db.edit({
-      table: disputes,
-      fieldName: "id",
-      fieldValue: ref("dispute.id"),
-      row: { status: "triaged" },
+    // Move an open dispute to triaged once the agent has weighed in.
+    s.conditional({
+      when: expr(ref("dispute.status"), "=", c.text("open")),
+      then: [
+        s.db.edit({
+          table: disputes,
+          fieldName: "id",
+          fieldValue: inp("dispute_id"),
+          row: { status: "triaged" },
+        }),
+      ],
     }),
   ],
   response: {
-    agent_run: ref("agent_run"),
-    allowed: ref("allowed"),
-    blocked_reason: ref("blocked_reason"),
+    agent_run_id: ref("ar.id"),
     classification: ref("run.result.classification"),
     proposed_resolution: ref("run.result.proposed_resolution"),
     proposed_amount_cents: ref("proposed_amount"),
+    allowed: ref("agent_allowed"),
+    blocked_reason: ref("agent_block_reason"),
   },
 });
-
-export type TriageBody = import("@xanots/core").InferInput<typeof triageQuery>;
-export type TriageResponse = import("@xanots/core").InferResponse<
-  typeof triageQuery
->;
